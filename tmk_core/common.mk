@@ -26,41 +26,12 @@ TMK_COMMON_SRC +=	$(COMMON_DIR)/host.c \
 	$(PLATFORM_COMMON_DIR)/bootloader.c \
 
 ifeq ($(PLATFORM),AVR)
-	TMK_COMMON_SRC += $(PLATFORM_COMMON_DIR)/xprintf.S
+  TMK_COMMON_SRC += $(PLATFORM_COMMON_DIR)/xprintf.S
+else ifeq ($(PLATFORM),CHIBIOS)
+  TMK_COMMON_SRC += $(PLATFORM_COMMON_DIR)/printf.c
+else ifeq ($(PLATFORM),ARM_ATSAM)
+  TMK_COMMON_SRC += $(PLATFORM_COMMON_DIR)/printf.c
 endif
-
-ifeq ($(PLATFORM),CHIBIOS)
-	TMK_COMMON_SRC += $(PLATFORM_COMMON_DIR)/printf.c
-  ifeq ($(MCU_SERIES), STM32F3xx)
-    TMK_COMMON_SRC += $(PLATFORM_COMMON_DIR)/eeprom_stm32.c
-    TMK_COMMON_SRC += $(PLATFORM_COMMON_DIR)/flash_stm32.c
-    TMK_COMMON_DEFS += -DEEPROM_EMU_STM32F303xC
-    TMK_COMMON_DEFS += -DSTM32_EEPROM_ENABLE
-  else ifeq ($(MCU_SERIES), STM32F1xx)
-    TMK_COMMON_SRC += $(PLATFORM_COMMON_DIR)/eeprom_stm32.c
-    TMK_COMMON_SRC += $(PLATFORM_COMMON_DIR)/flash_stm32.c
-    TMK_COMMON_DEFS += -DEEPROM_EMU_STM32F103xB
-    TMK_COMMON_DEFS += -DSTM32_EEPROM_ENABLE
-  else
-    TMK_COMMON_SRC += $(PLATFORM_COMMON_DIR)/eeprom_teensy.c
-  endif
-  ifeq ($(strip $(AUTO_SHIFT_ENABLE)), yes)
-    TMK_COMMON_SRC += $(CHIBIOS)/os/various/syscalls.c
-  else ifeq ($(strip $(TERMINAL_ENABLE)), yes)
-    TMK_COMMON_SRC += $(CHIBIOS)/os/various/syscalls.c
-  endif
-endif
-
-ifeq ($(PLATFORM),ARM_ATSAM)
-	TMK_COMMON_SRC += $(PLATFORM_COMMON_DIR)/printf.c
-	TMK_COMMON_SRC += $(PLATFORM_COMMON_DIR)/eeprom.c
-endif
-
-ifeq ($(PLATFORM),TEST)
-	TMK_COMMON_SRC += $(PLATFORM_COMMON_DIR)/eeprom.c
-endif
-
-
 
 # Option modules
 BOOTMAGIC_ENABLE ?= no
@@ -82,15 +53,31 @@ else
     TMK_COMMON_SRC += $(COMMON_DIR)/magic.c
 endif
 
+SHARED_EP_ENABLE = no
+MOUSE_SHARED_EP ?= yes
+ifeq ($(strip $(KEYBOARD_SHARED_EP)), yes)
+    TMK_COMMON_DEFS += -DKEYBOARD_SHARED_EP
+    SHARED_EP_ENABLE = yes
+    # With the current usb_descriptor.c code,
+    # you can't share kbd without sharing mouse;
+    # that would be a very unexpected use case anyway
+    MOUSE_SHARED_EP = yes
+endif
 
 ifeq ($(strip $(MOUSEKEY_ENABLE)), yes)
     TMK_COMMON_SRC += $(COMMON_DIR)/mousekey.c
     TMK_COMMON_DEFS += -DMOUSEKEY_ENABLE
     TMK_COMMON_DEFS += -DMOUSE_ENABLE
+
+    ifeq ($(strip $(MOUSE_SHARED_EP)), yes)
+        TMK_COMMON_DEFS += -DMOUSE_SHARED_EP
+        SHARED_EP_ENABLE = yes
+    endif
 endif
 
 ifeq ($(strip $(EXTRAKEY_ENABLE)), yes)
     TMK_COMMON_DEFS += -DEXTRAKEY_ENABLE
+    SHARED_EP_ENABLE = yes
 endif
 
 ifeq ($(strip $(RAW_ENABLE)), yes)
@@ -111,6 +98,7 @@ endif
 
 ifeq ($(strip $(NKRO_ENABLE)), yes)
     TMK_COMMON_DEFS += -DNKRO_ENABLE
+    SHARED_EP_ENABLE = yes
 endif
 
 ifeq ($(strip $(USB_6KRO_ENABLE)), yes)
@@ -129,11 +117,6 @@ endif
 
 ifeq ($(strip $(NO_SUSPEND_POWER_DOWN)), yes)
     TMK_COMMON_DEFS += -DNO_SUSPEND_POWER_DOWN
-endif
-
-ifeq ($(strip $(BACKLIGHT_ENABLE)), yes)
-    TMK_COMMON_SRC += $(COMMON_DIR)/backlight.c
-    TMK_COMMON_DEFS += -DBACKLIGHT_ENABLE
 endif
 
 ifeq ($(strip $(BLUETOOTH_ENABLE)), yes)
@@ -170,16 +153,23 @@ ifeq ($(strip $(NO_USB_STARTUP_CHECK)), yes)
     TMK_COMMON_DEFS += -DNO_USB_STARTUP_CHECK
 endif
 
-ifeq ($(strip $(KEYMAP_SECTION_ENABLE)), yes)
-    TMK_COMMON_DEFS += -DKEYMAP_SECTION_ENABLE
+ifeq ($(strip $(SHARED_EP_ENABLE)), yes)
+    TMK_COMMON_DEFS += -DSHARED_EP_ENABLE
+endif
 
-    ifeq ($(strip $(MCU)),atmega32u2)
-	TMK_COMMON_LDFLAGS = -Wl,-L$(TMK_DIR),-Tldscript_keymap_avr35.x
-    else ifeq ($(strip $(MCU)),atmega32u4)
-	TMK_COMMON_LDFLAGS = -Wl,-L$(TMK_DIR),-Tldscript_keymap_avr5.x
-    else
-	TMK_COMMON_LDFLAGS = $(error no ldscript for keymap section)
+ifeq ($(strip $(LTO_ENABLE)), yes)
+    LINK_TIME_OPTIMIZATION_ENABLE = yes
+endif
+
+ifeq ($(strip $(LINK_TIME_OPTIMIZATION_ENABLE)), yes)
+    ifeq ($(PLATFORM),CHIBIOS)
+        $(info Enabling LTO on ChibiOS-targeting boards is known to have a high likelihood of failure.)
+        $(info If unsure, set LINK_TIME_OPTIMIZATION_ENABLE = no.)
     endif
+    EXTRAFLAGS += -flto
+    TMK_COMMON_DEFS += -DLINK_TIME_OPTIMIZATION_ENABLE
+    TMK_COMMON_DEFS += -DNO_ACTION_MACRO
+    TMK_COMMON_DEFS += -DNO_ACTION_FUNCTION
 endif
 
 # Bootloader address
